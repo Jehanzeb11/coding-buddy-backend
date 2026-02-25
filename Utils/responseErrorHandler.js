@@ -9,11 +9,10 @@ const errorResponse = (res, status, code, message, details = null, rawError = nu
   return res.status(status).json(body);
 };
 
-const successResponse = (res, status, data, meta = null) => {
+const successResponse = (res, status, data, message = null) => {
   const body = { data };
-  if (meta) body.meta = meta;
+  if (message) body.message = message;
   return res.status(status).json(body);
 };
 
-
-module.exports = {errorResponse, successResponse}
+module.exports = { errorResponse, successResponse }

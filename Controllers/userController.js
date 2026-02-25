@@ -6,7 +6,6 @@ const {
   successResponse,
 } = require("../Utils/responseErrorHandler");
 const { serializeUser } = require("../Utils/reusable");
-const { invalidId } = require("../Handler/commonError");
 
 const BCRYPT_SALT_ROUNDS = 12;
 
@@ -95,7 +94,7 @@ const registerUser = async (req, res) => {
     });
 
     // 4. Return safe representation
-    return successResponse(res, 201, serializeUser(newUser));
+    return successResponse(res, 201, serializeUser(newUser), "User Successfully Registered!");
   } catch (error) {
     console.error("[registerUser]", error);
 
