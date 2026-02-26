@@ -41,7 +41,7 @@ app.use('/api', userRouter);
 app.use('/api/chat', chatRouter);
 app.use('/api/message', messageRouter);
 // ADD THIS BEFORE app.listen
-sequelize.sync({ alter: true })
+sequelize.sync({ alter: false })
     .then(() => {
         console.log('✅ DB synced')  // add this line
         app.listen(port, () => {

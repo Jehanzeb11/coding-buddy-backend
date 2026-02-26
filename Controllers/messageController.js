@@ -17,11 +17,15 @@ const sendMessage = async (req, res) => {
         // 2. save user message to DB
         await Message.create({ chatId, role: "user", content });
 
-        // 3. load full conversation history
+        // 3. load recent conversation history (limit to last 15 messages)
         const history = await Message.findAll({
             where: { chatId },
-            order: [["createdAt", "ASC"]]
+            order: [["createdAt", "DESC"]],
+            limit: 15
         });
+
+        // reverse to maintain chronological order
+        history.reverse();
 
         // 4. format history for Python service
         const messages = history.map(msg => ({
@@ -29,43 +33,25 @@ const sendMessage = async (req, res) => {
             content: msg.content
         }));
 
-        // 5. call Python AI service and stream response
+        // 5. call Python AI service
         const aiResponse = await axios.post(
             `${process.env.AI_SERVICE_URL.replace(/\/$/, "")}/chat`,
-            { messages, persona: chat.persona },
-            { responseType: "stream" }
+            { messages, persona: chat.persona, stream: false }
         );
 
-        // 6. stream response back to frontend
-        res.setHeader("Content-Type", "text/plain");
-        res.setHeader("Transfer-Encoding", "chunked");
+        const aiContent = aiResponse.data.content;
 
-        let fullResponse = "";
+        // 6. save complete AI response to DB
+        await Message.create({ chatId, role: "ai", content: aiContent });
 
-        aiResponse.data.on("data", (chunk) => {
-            const token = chunk.toString();
-            fullResponse += token;
-            res.write(token);
-        });
+        // 7. update chat title from first message if still default
+        if (chat.title === "New Chat") {
+            await chat.update({
+                title: content.substring(0, 40)
+            });
+        }
 
-        aiResponse.data.on("end", async () => {
-            // 7. save complete AI response to DB
-            await Message.create({ chatId, role: "ai", content: fullResponse });
-
-            // 8. update chat title from first message if still default
-            if (chat.title === "New Chat") {
-                await chat.update({
-                    title: content.substring(0, 40)
-                });
-            }
-
-            res.end();
-        });
-
-        aiResponse.data.on("error", (err) => {
-            console.error("[sendMessage stream error]", err);
-            res.end();
-        });
+        return successResponse(res, 201, { role: "ai", content: aiContent }, "Message sent successfully");
 
     } catch (error) {
         console.error("[sendMessage]", error);
