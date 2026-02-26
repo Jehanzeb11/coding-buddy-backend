@@ -39,6 +39,11 @@ Chat.init(
         sequelize,
         modelName: "Chat",
         timestamps: true,
+        indexes: [
+            {
+                fields: ["userId"]
+            }
+        ]
     }
 );
 

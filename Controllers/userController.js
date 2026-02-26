@@ -160,8 +160,8 @@ const loginUser = async (req, res) => {
     if (!isPasswordValid) {
       return errorResponse(
         res,
-        401,
-        "UNAUTHORIZED",
+        400,
+        "BAD_REQUEST",
         "Invalid password",
       );
     }
@@ -191,7 +191,7 @@ const loginUser = async (req, res) => {
 
 const getUser = async (req, res) => {
   try {
-    const user = await User.findByPk(req.user.id);
+    const user = await User.findByPk(req.user.id, { raw: true });
     if (!user) {
       return errorResponse(
         res,

@@ -37,6 +37,14 @@ Message.init(
         sequelize,
         modelName: "Message",
         timestamps: true,
+        indexes: [
+            {
+                fields: ["chatId"]
+            },
+            {
+                fields: ["createdAt"]
+            }
+        ]
     }
 );
 

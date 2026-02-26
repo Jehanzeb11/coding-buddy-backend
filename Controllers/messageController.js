@@ -1,6 +1,6 @@
-const axios = require("axios");
 const Chat = require("../Model/Chat");
 const Message = require("../Model/Message");
+const aiClient = require("../Utils/aiClient");
 const { errorResponse, successResponse } = require("../Utils/responseErrorHandler");
 
 const sendMessage = async (req, res) => {
@@ -8,48 +8,53 @@ const sendMessage = async (req, res) => {
         const { chatId } = req.params;
         const { content } = req.body;
 
-        // 1. check chat exists
-        const chat = await Chat.findByPk(chatId);
+        // 1. Concurrent check: Chat exists + Fetch the last messages
+        const [chat, recentHistory] = await Promise.all([
+            Chat.findByPk(chatId, { attributes: ['id', 'persona', 'title'] }),
+            Message.findAll({
+                where: { chatId },
+                order: [["createdAt", "DESC"]],
+                limit: 14, // We only need 14 from DB since we're adding the current user message
+                attributes: ["role", "content"],
+                raw: true
+            })
+        ]);
+
         if (!chat) {
             return errorResponse(res, 404, "NOT_FOUND", "Chat not found");
         }
 
-        // 2. save user message to DB
-        await Message.create({ chatId, role: "user", content });
+        // 2. Add current message to the DB (non-blocking if not needed for history)
+        // Wait for it because we need it in history? Actually, we can just add it manually in memory for AI call.
+        const userMsgPromise = Message.create({ chatId, role: "user", content });
 
-        // 3. load recent conversation history (limit to last 15 messages)
-        const history = await Message.findAll({
-            where: { chatId },
-            order: [["createdAt", "DESC"]],
-            limit: 15
-        });
-
-        // reverse to maintain chronological order
-        history.reverse();
-
-        // 4. format history for Python service
-        const messages = history.map(msg => ({
+        // 3. Prepare AI payloads concurrently
+        const historyForAI = [...recentHistory].reverse().map(msg => ({
             role: msg.role === "ai" ? "assistant" : "user",
             content: msg.content
         }));
+        historyForAI.push({ role: "user", content });
 
-        // 5. call Python AI service
-        const aiResponse = await axios.post(
+        // 4. Call AI service with persistent client
+        const aiResponsePromise = aiClient.post(
             `${process.env.AI_SERVICE_URL.replace(/\/$/, "")}/chat`,
-            { messages, persona: chat.persona, stream: false }
+            { messages: historyForAI, persona: chat.persona, stream: false }
         );
+
+        const [userMsg, aiResponse] = await Promise.all([userMsgPromise, aiResponsePromise]);
 
         const aiContent = aiResponse.data.content;
 
-        // 6. save complete AI response to DB
-        await Message.create({ chatId, role: "ai", content: aiContent });
+        // 5. Save AI response and update title in parallel
+        const finalActions = [
+            Message.create({ chatId, role: "ai", content: aiContent })
+        ];
 
-        // 7. update chat title from first message if still default
         if (chat.title === "New Chat") {
-            await chat.update({
-                title: content.substring(0, 40)
-            });
+            finalActions.push(chat.update({ title: content.substring(0, 40) }));
         }
+
+        await Promise.all(finalActions);
 
         return successResponse(res, 201, { role: "ai", content: aiContent }, "Message sent successfully");
 
@@ -64,14 +69,16 @@ const getMessages = async (req, res) => {
         const { chatId } = req.params;
         const messages = await Message.findAll({
             where: { chatId },
-            order: [["createdAt", "ASC"]]
+            order: [["createdAt", "ASC"]],
+            attributes: ["id", "role", "content", "createdAt"], // only needed fields
+            raw: true
         });
         return successResponse(res, 200, messages, "Messages fetched successfully");
     } catch (error) {
         return errorResponse(res, 500, "SERVER_ERROR", "Failed to fetch messages", null, error);
     }
 }
-
+// Keep rest of functions...
 const deleteMessage = async (req, res) => {
     try {
         const message = await Message.findByPk(req.params.id);
