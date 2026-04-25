@@ -41,7 +41,7 @@ app.use((err, req, res, next) => {
 const userRouter = require('./Routes/user');
 const chatRouter = require('./Routes/chat');
 const messageRouter = require('./Routes/message');
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 4000;
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 

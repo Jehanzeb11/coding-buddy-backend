@@ -2,7 +2,7 @@ const { Chat } = require("../Model/associations");
 
 const createChat = async (req, res) => {
     try {
-        const { title, persona } = req.body;
+        const { title, persona = "assistant" } = req.body;
 
         if (!title || !persona) {
             return res.status(400).json({ message: "Title and persona are required" });
