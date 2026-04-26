@@ -66,6 +66,84 @@ const validateRegistrationPayload = ({ username, email, password }) => {
   return { sanitized, validationErrors: errors };
 };
 
+const validateProfileUpdatePayload = (payload = {}) => {
+  const errors = [];
+  const sanitized = {};
+  const hasUsername = Object.prototype.hasOwnProperty.call(payload, "username");
+  const hasEmail = Object.prototype.hasOwnProperty.call(payload, "email");
+  const hasPassword = Object.prototype.hasOwnProperty.call(payload, "password");
+  const hasCurrentPassword = Object.prototype.hasOwnProperty.call(
+    payload,
+    "currentPassword",
+  );
+
+  if (!hasUsername && !hasEmail && !hasPassword && !hasCurrentPassword) {
+    errors.push(
+      "At least one updatable field is required: username, email, or password",
+    );
+    return { sanitized, validationErrors: errors };
+  }
+
+  if (hasUsername) {
+    if (typeof payload.username !== "string") {
+      errors.push("username must be a string");
+    } else {
+      sanitized.username = payload.username.trim();
+      if (sanitized.username.length < 3 || sanitized.username.length > 30) {
+        errors.push("username must be between 3 and 30 characters");
+      }
+      if (!/^[a-zA-Z0-9_]+$/.test(sanitized.username)) {
+        errors.push("username may only contain letters, numbers, and underscores");
+      }
+    }
+  }
+
+  if (hasEmail) {
+    if (typeof payload.email !== "string") {
+      errors.push("email must be a string");
+    } else {
+      sanitized.email = payload.email.trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(sanitized.email)) {
+        errors.push("email must be a valid email address");
+      }
+    }
+  }
+
+  if (hasCurrentPassword && typeof payload.currentPassword !== "string") {
+    errors.push("currentPassword must be a string");
+  } else if (hasCurrentPassword) {
+    sanitized.currentPassword = payload.currentPassword;
+  }
+
+  if (hasPassword) {
+    if (typeof payload.password !== "string") {
+      errors.push("password must be a string");
+    } else {
+      sanitized.password = payload.password;
+      if (sanitized.password.length < 8) {
+        errors.push("password must be at least 8 characters");
+      }
+      if (sanitized.password.length > 72) {
+        errors.push("password must not exceed 72 characters");
+      }
+      if (!/[A-Z]/.test(sanitized.password)) {
+        errors.push("password must contain at least one uppercase letter");
+      }
+      if (!/[a-z]/.test(sanitized.password)) {
+        errors.push("password must contain at least one lowercase letter");
+      }
+      if (!/[0-9]/.test(sanitized.password)) {
+        errors.push("password must contain at least one number");
+      }
+      if (!hasCurrentPassword || !sanitized.currentPassword) {
+        errors.push("currentPassword is required when updating password");
+      }
+    }
+  }
+
+  return { sanitized, validationErrors: errors };
+};
+
 const registerUser = async (req, res) => {
   // 1. Validate & sanitize input before touching the DB
   const { sanitized, validationErrors } = validateRegistrationPayload(req.body);
@@ -214,4 +292,99 @@ const getUser = async (req, res) => {
   }
 }
 
-module.exports = { registerUser, loginUser, getUser };
+const updateUser = async (req, res) => {
+  const { sanitized, validationErrors } = validateProfileUpdatePayload(req.body);
+
+  if (validationErrors.length > 0) {
+    return errorResponse(
+      res,
+      400,
+      "VALIDATION_ERROR",
+      "Invalid request payload",
+      validationErrors,
+    );
+  }
+
+  try {
+    const user = await User.unscoped().findByPk(req.user.id);
+    if (!user) {
+      return errorResponse(
+        res,
+        404,
+        "NOT_FOUND",
+        `User with id ${req.user.id} not found`,
+      );
+    }
+
+    const updates = {};
+
+    if (
+      sanitized.username &&
+      sanitized.username !== user.username
+    ) {
+      updates.username = sanitized.username;
+    }
+
+    if (
+      sanitized.email &&
+      sanitized.email !== user.email
+    ) {
+      const existingUser = await User.findOne({ where: { email: sanitized.email } });
+      if (existingUser && existingUser.id !== user.id) {
+        return errorResponse(
+          res,
+          409,
+          "CONFLICT",
+          "Email is already registered",
+        );
+      }
+      updates.email = sanitized.email;
+    }
+
+    if (sanitized.password) {
+      const isCurrentPasswordValid = await bcrypt.compare(
+        sanitized.currentPassword,
+        user.password,
+      );
+      if (!isCurrentPasswordValid) {
+        return errorResponse(
+          res,
+          400,
+          "BAD_REQUEST",
+          "Current password is incorrect",
+        );
+      }
+
+      const isSamePassword = await bcrypt.compare(sanitized.password, user.password);
+      if (isSamePassword) {
+        return errorResponse(
+          res,
+          400,
+          "BAD_REQUEST",
+          "New password must be different from current password",
+        );
+      }
+
+      updates.password = await bcrypt.hash(sanitized.password, BCRYPT_SALT_ROUNDS);
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return successResponse(res, 200, serializeUser(user), "No changes detected");
+    }
+
+    await user.update(updates);
+    return successResponse(res, 200, serializeUser(user), "User profile updated successfully");
+  } catch (error) {
+    console.error("[updateUser]", error);
+    return errorResponse(
+      res,
+      500,
+      "INTERNAL_ERROR",
+      "Failed to update user profile",
+      null,
+      error,
+    );
+  }
+};
+
+module.exports = { registerUser, loginUser, getUser, updateUser };

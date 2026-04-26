@@ -3,7 +3,6 @@ const { errorResponse } = require("../Utils/responseErrorHandler");
 
 const authMiddleware = (req, res, next) => {
     let token = req.headers.authorization;
-    console.log("token -- ", token);
 
     if (!token) {
         return errorResponse(
